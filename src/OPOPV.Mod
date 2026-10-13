@@ -11,7 +11,8 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
   CONST
     Var=1; VarPar=2; Con=3; Fld=4; Typ=5; LProc=6; XProc=7; CProc=9; TProc=13; Comp=15;
     Bool=2; Char=3; SInt=4; Int=5; LInt=6; Real=7; LReal=8; Set=9; String=10; NilTyp=11;
-    Pointer=13; Basic=1; Array=2; DynArr=3; Record=4; internal=0;
+    Pointer=13; Basic=1; StaticArr=2; SDynArr=3; DynArr=4; OpenArr=5; Record=6; internal=0;
+    ArraySet={StaticArr, SDynArr, DynArr, OpenArr};  (* polpo: four kinds of arrays, records are 6 *)
     assign=0; newfn=1; incfn=13; decfn=14; inclfn=15; exclfn=16; copyfn=18; assertfn=32;
     times=1; slash=2; div=3; mod=4; and=5; plus=6; minus=7; or=8; eql=9; neq=10; lss=11; leq=12; gtr=13;
     geq=14; in=15; is=16; ash=17; msk=18; len=19; conv=20; abs=21; cap=22; odd=23; not=33;
@@ -169,7 +170,7 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
     UNodeLR(TasgnAssign, flgNoRight, NIL, n, NIL, global);
     IF  typ.form=Pointer  THEN
       NNode(n, Tderef, typ.BaseTyp, NIL, n, NIL, global)
-    ELSIF (typ.comp=Array) OR (typ.comp=DynArr) THEN
+    ELSIF typ.comp IN ArraySet THEN
       UNodeLR(Tindex, flgNoRight, typ.BaseTyp, n, NIL, global)
     END
   END VarNodes;
