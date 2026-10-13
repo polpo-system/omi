@@ -6,7 +6,7 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
   (* 30.7.96  Method support (mfix) / WITH correction *)
 
   IMPORT
-    OPM:=OOPM, OPT:=OOPT;
+    OPM, OPT;
 
   CONST
     Var=1; VarPar=2; Con=3; Fld=4; Typ=5; LProc=6; XProc=7; CProc=9; TProc=13; Comp=15;
@@ -376,7 +376,7 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
         | TconstNil..TconstTrue:  n:=globalNode
         | TconstChar..TconstLInt: OPM.SymWNum(conval.intval); NewConstNode(n, tag, conval)
         | TconstSet:  OPM.SymWSet(conval.setval); NewConstNode(n, TconstSet, conval)
-        | TconstReal: OPM.SymWReal(conval.realval); NewConstNode(n, TconstReal, conval)
+        | TconstReal: OPM.SymWReal(SHORT(conval.realval)); NewConstNode(n, TconstReal, conval)
         | TconstLReal:  OPM.SymWLReal(conval.realval); NewConstNode(n, TconstLReal, conval)
         | TconstString: OPM.SymWString(conval.ext^); NewConstNode(n, TconstString, conval)
         | Tderef, TmopNot..TmopOdd: Expression(left); NNode(n, tag, NIL, NIL, left, NIL, left.global)
