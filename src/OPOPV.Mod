@@ -14,8 +14,10 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
     Pointer=13; Basic=1; StaticArr=2; SDynArr=3; DynArr=4; OpenArr=5; Record=6; internal=0;
     ArraySet={StaticArr, SDynArr, DynArr, OpenArr};  (* polpo: four kinds of arrays, records are 6 *)
     assign=0; newfn=1; incfn=13; decfn=14; inclfn=15; exclfn=16; copyfn=18; assertfn=32;
+    getfn=24; putfn=25; sysnewfn=30; movefn=31;  (* polpo: SYSTEM.GET, PUT (and PUT8..PUT32), NEW, MOVE *)
     times=1; slash=2; div=3; mod=4; and=5; plus=6; minus=7; or=8; eql=9; neq=10; lss=11; leq=12; gtr=13;
     geq=14; in=15; is=16; ash=17; msk=18; len=19; conv=20; abs=21; cap=22; odd=23; not=33;
+    adr=24; bit=26; lsh=27; rot=28; val=29; get8=30; get16=31; get32=32;  (* polpo: SYSTEM functions *)
     Nvar=0; Nvarpar=1; Nfield=2; Nderef=3; Nindex=4; Nguard=5; Neguard=6; Nconst=7; Nproc=9;
     Nupto=10; Nmop=11; Ndop=12; Ncall=13; Ninittd=14; Nenter=18; Nassign=19; Nifelse=20;
     Ncase=21; Nwhile=22; Nrepeat=23; Nloop=24; Nexit=25; Nreturn=26; Nwith=27; Ntrap=28;
@@ -29,10 +31,16 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
     TdopEql=1EH; TdopNeq=1FH; TdopLss=20H; TdopLeq=21H; TdopGtr=22H; TdopGeq=23H; Tupto=24H;
     Tcall=25H; TasgnNewfn=26H; TasgnAssign=27H; TasgnIncfn=28H; TasgnDecfn=29H; TasgnInclfn=2AH; TasgnExclfn=2BH;
     TasgnCopyfn=2CH; Tassert=2DH; Tif=2EH; Tcase=2FH; Twhile=30H; Trepeat=31H; Tloop=32H; Texit=33H; Twith=34H; Ttrap=35H;
-    Uvar=40H; Uvarpar=41H; Uproc=42H; Ufield=43H; Uguard=44H; Ueguard=45H; UmopIs=46H; UmopConv=47H; Uenter=48H; Ureturn=49H;
+    (* polpo: SYSTEM, tags after those of the mac; the global references start after TlastTag. tags are
+       written with SymWNum (the mac's SymW(CHR(tag)) is the same byte below 40H, which Files.ReadNum
+       reads as negative from 40H on) *)
+    TsysAdr=36H; TsysBit=37H; TsysLsh=38H; TsysRot=39H; TsysGet8=3AH; TsysGet16=3BH; TsysGet32=3CH;
+    TsysGet=3DH; TsysPut=3EH; TsysNew=3FH; TsysMove=40H; TlastTag=40H;
+    Uvar=50H; Uvarpar=51H; Uproc=52H; Ufield=53H; Uguard=54H; Ueguard=55H; UmopIs=56H; UmopConv=57H; Uenter=58H; Ureturn=59H;
+    UsysVal=5AH;  (* SYSTEM.VAL(T, x): a partial node for each type, as UmopConv *)
 
     flgOK=0; flgNoLeft=-1; flgNoRight=-2; flgEnter=-3;
-    MaxPar=21; MaxToken=Ureturn+1;
+    MaxPar=21; MaxToken=UsysVal+1;
 
     L=0; G=1;
     Local=FALSE; Global=TRUE;
@@ -46,7 +54,7 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
     constNodeOT: ARRAY NilTyp+1 OF INTEGER;
     mopNodeOT: ARRAY not+1 OF INTEGER;
     dopNodeOT: ARRAY not+1 OF INTEGER;  (* polpo: to not, as mopNodeOT; SYSTEM ops are 24..34 *)
-    asgnNodeOT: ARRAY copyfn+1 OF INTEGER;
+    asgnNodeOT: ARRAY movefn+1 OF INTEGER;
     nodeNodeOT: ARRAY Ntrap+1 OF INTEGER;
 
     (*global for each module being compiled*)
@@ -119,7 +127,7 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
         ELSIF n.conval.intval=0 THEN  RETURN TconstFalse  ELSE  RETURN TconstTrue END
     | Nmop: IF (n.subcl > not) OR (mopNodeOT[n.subcl] < 0) THEN RETURN NotPortable(FALSE) END; RETURN mopNodeOT[n.subcl]
     | Ndop: IF (n.subcl > not) OR (dopNodeOT[n.subcl] < 0) THEN RETURN NotPortable(FALSE) END; RETURN dopNodeOT[n.subcl]
-    | Nassign:  IF (n.subcl > copyfn) OR (asgnNodeOT[n.subcl] < 0) THEN RETURN NotPortable(TRUE) END; RETURN asgnNodeOT[n.subcl]
+    | Nassign:  IF (n.subcl > movefn) OR (asgnNodeOT[n.subcl] < 0) THEN RETURN NotPortable(TRUE) END; RETURN asgnNodeOT[n.subcl]
     | Nifelse:  IF  n.subcl=assertfn  THEN  RETURN Tassert  ELSE  RETURN Tif  END
     | Nproc: IF n.obj.mode = CProc THEN RETURN NotPortable(FALSE) END; RETURN Uproc
     ELSE
@@ -211,6 +219,7 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
         ELSE  NNode(n, Uvarpar, NIL, obj, NIL, NIL, global) END;
         IF  ~external THEN  VarNodes(n, obj.typ, global)  END
       ELSIF obj.mode=Typ  THEN
+        UNodeO(UsysVal, flgNoLeft, obj.typ, NIL, global);  (* polpo: SYSTEM.VAL(obj, x) *)
         IF  (obj.typ.form=Pointer) OR (obj.typ.comp=Record) THEN
           UNodeO(Uguard, flgNoLeft, obj.typ, NIL, global);
           UNodeO(Ueguard, flgNoLeft, obj.typ, NIL, global);
@@ -293,13 +302,14 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
         WHILE realval#p.conval.realval  DO  p:=p.link END
     | TconstString: hd.conval:=n.conval; p:=fullNode[G, TconstString].link; ext:=n.conval.ext;
         WHILE ext^#p.conval.ext^  DO  p:=p.link END
-    | Tderef, TmopNot..TmopOdd (*, TasgnNewfn *): left:=EquivNode(n.left); hd.left:=left;
+    | Tderef, TmopNot..TmopOdd, TsysAdr, TsysGet8..TsysGet32 (*, TasgnNewfn *): left:=EquivNode(n.left); hd.left:=left;
         WHILE left#p.left DO  p:=p.link END
     | TasgnNewfn: p:=EquivNewArg(n)
-    | Tindex, TdopAnd..Tupto, TasgnIncfn..TasgnCopyfn:
+    | Tindex, TdopAnd..Tupto, TasgnIncfn..TasgnCopyfn, TsysBit..TsysRot, TsysGet..TsysNew:
         left:=EquivNode(n.left); right:=EquivNode(n.right); hd.left:=left; hd.right:=right;
         WHILE (left#p.left) OR (right#p.right)  DO  p:=p.link END
-    | UmopConv, Uguard, Ueguard:  typ:=n.typ; left:=EquivNode(n.left); hd.typ:=typ; hd.left:=left;
+    | TsysMove: RETURN notFound
+    | UmopConv, Uguard, Ueguard, UsysVal:  typ:=n.typ; left:=EquivNode(n.left); hd.typ:=typ; hd.left:=left;
         WHILE (left#p.left) OR (typ#p.typ)  DO  p:=p.link END
     | UmopIs: typ:=n.obj.typ; left:=EquivNode(n.left); hd.typ:=typ; hd.left:=left;
         WHILE (left#p.left) OR (typ#p.typ)  DO  p:=p.link END
@@ -330,11 +340,11 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
     VAR tag: INTEGER; obj: OPT.Object; typ: OPT.Struct; hd, p, left, right: OPT.Node;
   BEGIN tag:=Tag(n); hd:=partialNode[L, tag]; p:=hd.link;
     CASE  tag OF
-    | TconstNil..TconstString, Tderef, TmopNot..TmopOdd, TasgnNewfn, Tassert..Ttrap:  RETURN notFound
+    | TconstNil..TconstString, Tderef, TmopNot..TmopOdd, TasgnNewfn, Tassert..TlastTag:  RETURN notFound
     | Tindex, TdopAnd..Tupto, TasgnAssign..TasgnCopyfn:
         left:=EquivNode(n.left); right:=EquivNode(n.right); hd.left:=left; hd.right:=right;
         WHILE (left#p.left) & (right#p.right) DO  p:=p.link END
-    | UmopConv, Uguard, Ueguard:  typ:=n.typ; hd.typ:=typ;
+    | UmopConv, Uguard, Ueguard, UsysVal:  typ:=n.typ; hd.typ:=typ;
         WHILE typ#p.typ DO  p:=p.link END
     | UmopIs: typ:=n.obj.typ; hd.typ:=typ;
         WHILE typ#p.typ DO  p:=p.link END
@@ -393,7 +403,7 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
     IF  e#notFound  THEN  OPM.SymWNum(e.ref); n:=e
     ELSE  h:=EquivHalfNode(n);
       IF  h#notFound  THEN  OPM.SymWNum(h.ref); CompleteNode(h, tag, left, right); n:=h
-      ELSE  OPM.SymW(CHR(tag));
+      ELSE  OPM.SymWNum(tag);
         CASE  tag OF
         | TconstNil..TconstTrue:  n:=globalNode
         | TconstChar..TconstLInt: OPM.SymWNum(conval.intval); NewConstNode(n, tag, conval)
@@ -401,8 +411,9 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
         | TconstReal: OPM.SymWReal(SHORT(conval.realval)); NewConstNode(n, TconstReal, conval)
         | TconstLReal:  OPM.SymWLReal(conval.realval); NewConstNode(n, TconstLReal, conval)
         | TconstString: OPM.SymWString(conval.ext^); NewConstNode(n, TconstString, conval)
-        | Tderef, TmopNot..TmopOdd: Expression(left); NNode(n, tag, NIL, NIL, left, NIL, left.global)
-        | Tindex, TdopAnd..Tupto: Expression(left); Expression(right); NNode(n, tag, NIL, NIL, left, right, left.global&right.global)
+        | Tderef, TmopNot..TmopOdd, TsysAdr, TsysGet8..TsysGet32: Expression(left); NNode(n, tag, NIL, NIL, left, NIL, left.global)
+        | Tindex, TdopAnd..Tupto, TsysBit..TsysRot: Expression(left); Expression(right); NNode(n, tag, NIL, NIL, left, right, left.global&right.global)
+        | UsysVal: OPM.err(505)  (* a type without its node *)
         | Tcall:  Expression(left); NNode(n, Tcall, NIL, NIL, left, NIL, left.global); n.flag:=NofPar(obj); CompleteNode(n, Tcall, NIL, right)
         END
       END
@@ -465,12 +476,13 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
     IF  e#notFound  THEN  OPM.SymWNum(e.ref)
     ELSE  h:=EquivHalfNode(n);
       IF  h#notFound  THEN  OPM.SymWNum(h.ref); CompleteNode(h, tag, left, right)
-      ELSE  OPM.SymW(CHR(tag));
+      ELSE  OPM.SymWNum(tag);
         CASE  tag OF
         | Tcall:  Expression(left); NNode(n, Tcall, NIL, NIL, left, NIL, left.global); n.flag:=NofPar(obj); CompleteNode(n, tag, NIL, right)
         | TasgnNewfn: Expression(left); NNode(n, tag, NIL, NIL, left, NIL, left.global);
           WHILE right#NIL DO h:=right; Expression(h); NEW(e); n.right:=e; e.left:=h; n:=e; right:=right.link END;
-        | TasgnAssign..TasgnCopyfn: Expression(left); Expression(right); NNode(n, tag, NIL, NIL, left, right, left.global&right.global)
+        | TasgnAssign..TasgnCopyfn, TsysGet..TsysNew: Expression(left); Expression(right); NNode(n, tag, NIL, NIL, left, right, left.global&right.global)
+        | TsysMove: h:=right.link; Expression(left); Expression(right); Expression(h); NNode(n, tag, NIL, NIL, left, right, left.global&right.global)
         | Tif, Twith: IfStat(n, tag)
         | Tcase:  CaseStat(left, right)
         | Twhile: Expression(left); Sequence(right); OPM.SymW(CHR(Tend))
@@ -548,6 +560,7 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
           NNode(n, Tcall, NIL, obj.link, n, NIL, Global); n.flag:=NofPar(obj.link)
         ELSIF (obj.mode=Con) & (obj.typ.form#Bool) THEN
           NewConstNode(n, constNodeOT[obj.typ.form], obj.conval)
+        ELSIF obj.mode=Typ THEN UNodeO(UsysVal, flgNoLeft, obj.typ, NIL, Global)  (* polpo: SYSTEM.VAL *)
         ELSIF obj.mode=CProc THEN OPM.err(503); RETURN
         END;
         IF (obj.mode=Typ) OR (obj.mode=Var) THEN
@@ -568,6 +581,68 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
   END Use;
 
 
+  (* polpo: SYSTEM.VAL(T, v) of a designator makes no node in polpo's parser (OPB.Val), it gives the
+     designator the type T; the dictionary knows a variable by its object, not by its type. Before the
+     tree is written, such a designator is put under an explicit Nmop(val) with the type T and gets
+     its own type back; the decoder undoes it as OPB.Val would do it *)
+  PROCEDURE Natural(n: OPT.Node): OPT.Struct;  (* the type of a designator without SYSTEM.VAL *)
+  BEGIN
+    CASE n.class OF
+    | Nvar, Nvarpar, Nfield: RETURN n.obj.typ
+    | Nindex, Nderef: RETURN n.left.typ.BaseTyp
+    END
+  END Natural;
+
+  PROCEDURE ^ NormStats(n: OPT.Node);
+
+  PROCEDURE NormExpr(VAR n: OPT.Node);
+    VAR p, v: OPT.Node;
+  BEGIN
+    IF n # NIL THEN
+      CASE n.class OF
+      | Nfield, Nderef, Nguard, Neguard, Nmop: NormExpr(n.left)
+      | Nindex, Ndop, Nupto: NormExpr(n.left); NormExpr(n.right)
+      | Ncall: NormExpr(n.left);
+          IF n.right # NIL THEN NormExpr(n.right); p := n.right;
+            WHILE p.link # NIL DO NormExpr(p.link); p := p.link END
+          END
+      ELSE
+      END;
+      IF (n.class IN {Nvar, Nvarpar, Nfield, Nindex, Nderef}) & (n.typ # Natural(n)) THEN
+        v := OPT.NewNode(Nmop); v.subcl := val; v.typ := n.typ; v.left := n; v.link := n.link;
+        n.link := NIL; n.typ := Natural(n); n := v
+      END
+    END
+  END NormExpr;
+
+  PROCEDURE NormStat(n: OPT.Node);
+    VAR if, c: OPT.Node;
+  BEGIN
+    CASE n.class OF
+    | Nassign: NormExpr(n.left); NormExpr(n.right);
+        IF (n.right # NIL) & (n.right.link # NIL) THEN c := n.right;  (* MOVE: the length; NEW: the lengths *)
+          WHILE c.link # NIL DO NormExpr(c.link); c := c.link END
+        END
+    | Ncall: NormExpr(n)
+    | Nifelse, Nwith: if := n.left;
+        WHILE if # NIL DO NormExpr(if.left); NormStats(if.right); if := if.link END;
+        NormStats(n.right)
+    | Ncase: NormExpr(n.left); c := n.right.left;
+        WHILE c # NIL DO NormStats(c.right); c := c.link END;
+        NormStats(n.right.right)
+    | Nwhile: NormExpr(n.left); NormStats(n.right)
+    | Nrepeat: NormStats(n.left); NormExpr(n.right)
+    | Nloop: NormStats(n.left)
+    | Nreturn: NormExpr(n.left)
+    | Nenter: NormStats(n.left); NormStats(n.right)
+    ELSE
+    END
+  END NormStat;
+
+  PROCEDURE NormStats(n: OPT.Node);
+  BEGIN WHILE n # NIL DO NormStat(n); n := n.link END
+  END NormStats;
+
   PROCEDURE Module*(prog: OPT.Node);
     VAR i: INTEGER; stat: OPT.Node; expSect: LONGINT;
   BEGIN i:=1;
@@ -575,7 +650,7 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
     OPT.OutScope(OPT.topScope.right, FALSE);
     expSect:=OPM.SymWPos()+1;
 
-    InitDict; below:=-1; above:=Ttrap+1; minNod:=0;
+    InitDict; below:=-1; above:=TlastTag+1; minNod:=0;
     UNodeO(UmopConv, flgNoLeft, OPT.chartyp, NIL, Global);
     UNodeO(UmopConv, flgNoLeft, OPT.sinttyp, NIL, Global);
     UNodeO(UmopConv, flgNoLeft, OPT.inttyp, NIL, Global);
@@ -583,6 +658,11 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
     UNodeO(UmopConv, flgNoLeft, OPT.realtyp, NIL, Global);
     UNodeO(UmopConv, flgNoLeft, OPT.lrltyp, NIL, Global);
     UNodeO(UmopConv, flgNoLeft, OPT.settyp, NIL, Global);
+    UNodeO(UsysVal, flgNoLeft, OPT.booltyp, NIL, Global); UNodeO(UsysVal, flgNoLeft, OPT.chartyp, NIL, Global);
+    UNodeO(UsysVal, flgNoLeft, OPT.sinttyp, NIL, Global); UNodeO(UsysVal, flgNoLeft, OPT.inttyp, NIL, Global);
+    UNodeO(UsysVal, flgNoLeft, OPT.linttyp, NIL, Global); UNodeO(UsysVal, flgNoLeft, OPT.realtyp, NIL, Global);
+    UNodeO(UsysVal, flgNoLeft, OPT.lrltyp, NIL, Global); UNodeO(UsysVal, flgNoLeft, OPT.settyp, NIL, Global);
+    UNodeO(UsysVal, flgNoLeft, OPT.bytetyp, NIL, Global); UNodeO(UsysVal, flgNoLeft, OPT.ptrtyp, NIL, Global);
 
     GenNodes(OPT.objects, Internal, Global);
 
@@ -596,6 +676,7 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
     OPM.SymW(EUEnd);
 
     IF OPM.noerr THEN
+      NormStats(prog.left); NormStats(prog.right);
       stat:=prog.right;
       WHILE (stat#NIL)&(stat.class=Ninittd) DO  stat:=stat.link END;
       Sequence(prog.left); OPM.SymW(CHR(Tbegin)); Sequence(stat);
@@ -624,6 +705,10 @@ BEGIN
   constNodeOT[String]:=TconstString; constNodeOT[NilTyp]:=TconstNil;
   mopNodeOT[not]:=TmopNot; mopNodeOT[minus]:=TmopMinus; mopNodeOT[is]:=UmopIs; mopNodeOT[conv]:=UmopConv;
   mopNodeOT[abs]:=TmopAbs; mopNodeOT[cap]:=TmopCap; mopNodeOT[odd]:=TmopOdd;
+  mopNodeOT[adr]:=TsysAdr; mopNodeOT[val]:=UsysVal;
+  mopNodeOT[get8]:=TsysGet8; mopNodeOT[get16]:=TsysGet16; mopNodeOT[get32]:=TsysGet32;
+  dopNodeOT[bit]:=TsysBit; dopNodeOT[lsh]:=TsysLsh; dopNodeOT[rot]:=TsysRot;
+  asgnNodeOT[getfn]:=TsysGet; asgnNodeOT[putfn]:=TsysPut; asgnNodeOT[sysnewfn]:=TsysNew; asgnNodeOT[movefn]:=TsysMove;
   dopNodeOT[times]:=TdopTimes; dopNodeOT[slash]:=TdopSlash; dopNodeOT[div]:=TdopDiv; dopNodeOT[mod]:=TdopMod;
   dopNodeOT[and]:=TdopAnd; dopNodeOT[or]:=TdopOr; dopNodeOT[plus]:=TdopPlus; dopNodeOT[minus]:=TdopMinus;
   dopNodeOT[eql]:=TdopEql; dopNodeOT[neq]:=TdopNeq;
