@@ -92,6 +92,12 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
   BEGIN OPM.err(n)
   END Err;
 
+  PROCEDURE ErrObj(n: INTEGER; VAR mod, name: ARRAY OF CHAR; fp, fp2: LONGINT);  (* an error about an imported object *)
+  BEGIN OPM.LogWLn; OPM.LogWStr("  "); OPM.LogWStr(mod); OPM.LogW("."); OPM.LogWStr(name);
+    OPM.LogWStr(" fingerprint "); OPM.LogWHex(fp2); OPM.LogWStr(", the slim binary has "); OPM.LogWHex(fp);
+    OPM.err(n)
+  END ErrObj;
+
   PROCEDURE Next;
   BEGIN Files.ReadNum(R, tok)
   END Next;
@@ -451,7 +457,7 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
       UNodeO(Uguard, flgNoLeft, typ, NIL, Global); UNodeO(Ueguard, flgNoLeft, typ, NIL, Global);
       UNodeO(UmopIs, flgNoLeft, typ, NIL, Global);
       Next; IF tok # EURecord THEN Err(514) END;
-      typ.oref := -1;
+      typ.oref := -1; OPT.FPrintTyp(typ);  (* the fingerprints of the fields, as UseRecord of the encoder *)
       Next;
       IF (tok = EURecord) & (typ.BaseTyp # NIL) & (typ.BaseTyp.oref = 0) & (typ.BaseTyp.mno = mno) THEN
         (* the base record was used too: its block comes first *)
@@ -462,7 +468,7 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
         fld := typ.link; WHILE (fld # NIL) & (fld.name # name) DO fld := fld.link END;
         IF (fld = NIL) OR (fld.mode # Fld) THEN Err(507)
         ELSE
-          OPT.FPrintObj(fld); IF fld.fp # fp THEN Err(515) END;
+          IF fld.fp # fp THEN ErrObj(515, typ.strobj.name, name, fp, fld.fp) END;
           OPT.MarkObj(fld);
           UNodeO(Ufield, flgNoLeft, NIL, fld, Global); UseTyp(fld.typ, mno)
         END;
@@ -484,7 +490,7 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
         fp := tok; ReadString(name);
         obj := Find(OPT.modules[i].right, name);
         IF obj = NIL THEN Err(516); RETURN END;
-        OPT.FPrintObj(obj); IF obj.fp # fp THEN Err(515) END;
+        OPT.FPrintObj(obj); IF obj.fp # fp THEN ErrObj(515, OPT.modules[i].name, name, fp, obj.fp) END;
         OPT.MarkObj(obj);  (* used: the object file lists it, as the parser marks it *)
         IF obj.mode = Var THEN n := NNode(Uvar, NIL, obj, NIL, NIL, Global)
         ELSIF obj.mode = XProc THEN
