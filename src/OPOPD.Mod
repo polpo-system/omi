@@ -234,7 +234,7 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
   END NewOwnStruct;
 
   PROCEDURE InStruct(VAR typ: OPT.Struct);  (* the structure whose tag is in tok *)
-    VAR m: LONGINT; name: OPS.Name; obj: OPT.Object; mod: OPT.Module;
+    VAR m, k: LONGINT; name: OPS.Name; obj: OPT.Object; mod: OPT.Module;
   BEGIN
     IF tok <= 0 THEN m := 1 - tok;  (* own structure written before: -n+1 *)
       IF (m < 1) OR (m > nofstruc) THEN Err(509); typ := OPT.undftyp ELSE typ := structs[m] END
@@ -248,8 +248,8 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
         IF (obj = NIL) OR (obj.mode # Typ) THEN Err(511); typ := OPT.undftyp ELSE typ := obj.typ END;
         INC(nofreimp[m]); IF nofreimp[m] >= LEN(reimp[m]^) THEN Err(508); nofreimp[m] := 1 END;
         reimp[m][nofreimp[m]] := typ
-      ELSE Files.ReadNum(R, m); INC(m);
-        IF m > nofreimp[m] THEN Err(511); typ := OPT.undftyp ELSE typ := reimp[m][m] END
+      ELSE Files.ReadNum(R, k); INC(k);  (* the k-th structure of mod written before *)
+        IF k > nofreimp[m] THEN Err(511); typ := OPT.undftyp ELSE typ := reimp[m][k] END
       END
     ELSE NewOwnStruct(typ, tok)
     END
