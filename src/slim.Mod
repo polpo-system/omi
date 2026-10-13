@@ -10,6 +10,15 @@ IMPORT Files, OPP, OPB, OPT, OPS, OPM, OPV, OPC, OPL, OPO, OPOPV, OPOPD, Root, T
 CONST
   module = OPS.module; ident = OPS.ident;
 
+PROCEDURE ShowErrors;  (* the error messages are in Oberon.Log, as with compiler.Compile *)
+VAR R: Texts.Reader; ch: CHAR;
+BEGIN
+  IF ~OPM.noerr THEN
+    Texts.OpenReader(R, Oberon.Log, 0); Texts.Read(R, ch);
+    WHILE ~R.eot DO Out.Char(ch); Texts.Read(R, ch) END
+  END
+END ShowErrors;
+
 PROCEDURE Reset;  (* the x86 compiler shares OPM: leave it as it found it *)
 BEGIN OPM.slim := FALSE; OPM.symPath := ""; OPM.outputPath := "!"; OPM.outputPrefix := "!"
 END Reset;
@@ -62,7 +71,7 @@ BEGIN
     END
   END;
   OPT.CloseScope; OPT.Close;
-  Out.Ln; error := ~OPM.noerr;
+  ShowErrors; Out.Ln; error := ~OPM.noerr;
   Reset
 END Module;
 
@@ -111,7 +120,7 @@ BEGIN
     END
   END;
   OPT.CloseScope; OPT.Close;
-  Out.Ln; error := ~OPM.noerr;
+  ShowErrors; Out.Ln; error := ~OPM.noerr;
   Reset
 END BuildOne;
 
