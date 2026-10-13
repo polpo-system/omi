@@ -5,7 +5,7 @@ MODULE slim;  (** slim.Compile file.Mod: compile a module to a slim binary in ob
    end is polpo's x86 compiler (OPP, OPB, OPT, OPM); the interfaces of imports come from obj/slim/,
    else from obj/x86/ (the same front end writes them, with the same fingerprints). *)
 
-IMPORT OPP, OPB, OPT, OPS, OPM, OPOPV, Root, Texts := texts, Oberon := Oberon0, Out := out;
+IMPORT Files, OPP, OPB, OPT, OPS, OPM, OPV, OPC, OPL, OPO, OPOPV, OPOPD, Root, Texts := texts, Oberon := Oberon0, Out := out;
 
 CONST
   module = OPS.module; ident = OPS.ident;
@@ -75,6 +75,54 @@ BEGIN
   ELSE Out.String(name); Out.String(" not found"); Out.Ln; error := TRUE
   END
 END CompileFile;
+
+PROCEDURE Append(VAR s: ARRAY OF CHAR; t: ARRAY OF CHAR);
+VAR i, j: INTEGER;
+BEGIN i := 0; WHILE s[i] # 0X DO INC(i) END; j := 0;
+  WHILE (t[j] # 0X) & (i < LEN(s)-1) DO s[i] := t[j]; INC(i); INC(j) END; s[i] := 0X
+END Append;
+
+(* obj/slim/name.Obj decoded (OPOPD) and compiled by the x86 back end to obj/x86/name.Obj, as compiler.Module
+   compiles what the parser made *)
+PROCEDURE BuildOne(name: ARRAY OF CHAR; VAR error: BOOLEAN);
+VAR F: Files.File; fname: ARRAY 256 OF CHAR; t: Texts.Text; r: Texts.Reader; p: OPT.Node; modName: OPS.Name;
+  newSF, extSF: BOOLEAN;
+BEGIN
+  Root.Obj("slim", fname); Append(fname, name); Append(fname, ".Obj");
+  F := Files.Old(fname);
+  IF F = NIL THEN Out.String(fname); Out.String(" not found"); Out.Ln; error := TRUE; RETURN END;
+  Root.Obj("x86", OPM.outputPath); OPM.outputPrefix := ""; COPY(".Obj", OPM.extension);
+  Root.Obj("slim", OPM.symPath);
+  Out.String(fname); Out.String(" building "); Out.String(OPM.outputPath); Out.String(name);
+  NEW(t); Texts.Open(t, ""); Texts.OpenReader(r, t, 0);
+  OPM.Init(OPM.DefaultCodeOpt, OPM.DefaultParserOpt + {OPM.newsf}, r, Oberon.Log);
+  OPB.typSize := OPV.TypSize; OPV.Init(-1);
+  COPY(name, modName); OPOPD.Module(F, modName, p);
+  IF OPM.noerr THEN
+    OPL.Init; OPM.errpos := 0; OPM.Begin(modName);
+    IF OPM.noerr THEN
+      newSF := TRUE; extSF := FALSE;
+      OPT.Export(modName, newSF, extSF); OPV.AdrAndSize(OPT.topScope);
+      IF OPM.noerr THEN
+        OPM.errpos := 0; OPC.Init; OPV.Module(p);
+        IF OPM.noerr THEN OPL.OutCode(modName); IF OPM.noerr THEN Out.String("   "); Out.Int(OPO.pc, 1) END END
+      END;
+      OPL.Close
+    END
+  END;
+  OPT.CloseScope; OPT.Close;
+  Out.Ln; error := ~OPM.noerr;
+  Reset
+END BuildOne;
+
+
+PROCEDURE Build*;
+VAR S: Texts.Scanner; error: BOOLEAN;
+BEGIN error := FALSE;
+  Texts.OpenScanner(S, Oberon.Par.text, Oberon.Par.pos); Texts.Scan(S);
+  IF S.class = Texts.Inval THEN Out.String("usage: slim.Build Name ... (obj/slim/Name.Obj to obj/x86/Name.Obj)"); Out.Ln; RETURN END;
+  WHILE (S.class = Texts.Name) & ~error DO BuildOne(S.s, error); Texts.Scan(S) END
+END Build;
 
 PROCEDURE Help*;
 BEGIN
