@@ -592,7 +592,7 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
       Sequence(prog.left); OPM.SymW(CHR(Tbegin)); Sequence(stat);
 
       IF OPM.noerr THEN
-        OPM.ObjWNum(expSect); OPM.ObjWNum(-minNod); OPM.ObjWNum(above); OPM.EndObj;
+        OPM.ObjWNum(expSect); OPM.ObjWNum(-minNod); OPM.ObjWNum(above); OPM.EndSlim;  (* polpo: EndObj ends a native object *)
         OPM.LogW(9X); OPM.LogWNum(-minNod+above, 10)
       END
     END
