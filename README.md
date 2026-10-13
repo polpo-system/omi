@@ -15,6 +15,7 @@ ports (x86, ARM, ARMv7, RISC-V, MIPS), which stay.
     mac/            the OMI sources of MacOberon R2.32 (Src.Arc, 2000), unchanged but for plain text
     src/OPOPV.Mod   the encoder, polpo's version of mac/PPC.OPOPV.Mod
     src/OPOPD.Mod   the decoder: a slim binary back into the objects and the tree of polpo's compiler
+    src/SlimLoad.Mod a slim binary compiled to native code: into memory for the module loader, or to obj/x86
     src/slim.Mod    the commands
     test/           SlimTest (the language) and SlimSysTest (SYSTEM)
 
@@ -24,12 +25,18 @@ a commit of its own.
 ## Using it
 
     slim.Compile [/s /2 ...] X.Mod   X.Mod to the slim binary obj/slim/X.Obj (and obj/slim/X.Sym)
-    slim.Build X                     obj/slim/X.Obj to a native obj/x86/X.Obj
+    X.Run                            loads X: compiled into memory from obj/slim/X.Obj
+    slim.Build X                     obj/slim/X.Obj to a native obj/x86/X.Obj, if wanted
+    SlimLoad.Verbose                 report each module compiled into memory
     slim.Help
 
-The front end is polpo's x86 compiler; `slim.Build` decodes the slim binary into what polpo's
-parser makes of the source and compiles that with the x86 back end. obj/x86 is so the cache of the
-slim module. The interfaces of imports come from obj/slim, else from obj/x86.
+A module with a slim binary and no native object is compiled when it is loaded, as on the mac:
+polpo's module loader (Modules0) meets obj/slim/X.Obj, loads the module SlimLoad the first time,
+and SlimLoad decodes the slim binary into what polpo's parser makes of the source and compiles that
+with the x86 back end into an object that stays in memory; the loader loads it from there and
+nothing is written. The nearest comes first: the native object of the current directory, its slim
+binary, then the same in the root. `slim.Build` writes the native object instead, a cache that
+the loader then takes. The interfaces of imports come from obj/slim, else from obj/x86.
 
 ## The format
 
@@ -81,9 +88,14 @@ Both give the output of the native compile, with the same size of code. polpo's 
 modules: RSA, ECDSA, X25519, AES-GCM, SHA-2, X.509, TLS 1.3 client and server) built through slim
 passes its 34 test modules with the output of the native one.
 
-Not yet: type-bound procedures (Oberon-2), operators; loading a slim binary straight into memory,
-as the mac did; code generation for the other ports, and an interpreter for processors polpo has
-no compiler for.
+Loaded into memory: SlimTest runs from its slim binary alone, and with the whole TLS library
+only as slim binaries the 34 test modules pass; compiling the 14 modules TLSTestServer loads costs
+about 36 ms (0.154 s against 0.118 s native).
+
+SlimMethTest (type-bound procedures, a super call; 5 checks, /2) passes as well.
+
+Not yet: operators, object bodies of Active Oberon; code generation for the other ports, and an
+interpreter for processors polpo has no compiler for.
 
 The license is GPL-3 (`LICENSE`); the code comes from ETH Oberon, whose license (`LICENSE.ETH`)
 asks to keep its copyright notice and conditions, which `LICENSE.ETH` does.
