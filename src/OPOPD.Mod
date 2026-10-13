@@ -524,6 +524,18 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
   BEGIN n := NewNode(class, subcl, OPT.notyp, left, right); n.conval := OPT.NewConst(); RETURN n
   END Stat;
 
+  (* as the parser: a variable of another level is no leaf; one of an enclosing procedure, or a call of a
+     procedure local to one, needs the static link of the procedures in between (OPB.StaticLink) *)
+  PROCEDURE Level(obj: OPT.Object);
+    VAR lev: SHORTINT;
+  BEGIN lev := obj.mnolev;
+    IF obj.mode IN {Var, VarPar, Fld} THEN
+      IF lev # level THEN obj.leaf := FALSE; IF lev > 0 THEN OPB.StaticLink(level - lev) END END
+    ELSIF obj.mode IN {LProc, XProc} THEN
+      IF lev > 0 THEN OPB.StaticLink(level - lev) END
+    END
+  END Level;
+
   PROCEDURE ^ Build(d: DNode): OPT.Node;
 
   PROCEDURE Formals(proc: OPT.Node): OPT.Object;  (* the formal parameters of what is called *)
@@ -559,7 +571,7 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
         | TconstLReal: t := OPT.lrltyp | TconstString: t := OPT.stringtyp
         END;
         x := NewNode(Nconst, 0, t, NIL, NIL); x.conval := CopyConst(d.conval)
-    | Uvar, Uvarpar, Uproc: x := OPB.NewLeaf(Current(d.obj))
+    | Uvar, Uvarpar, Uproc: obj := Current(d.obj); Level(obj); x := OPB.NewLeaf(obj)
     | Ufield: x := NewNode(Nfield, 0, d.obj.typ, Build(d.left), NIL); x.obj := d.obj
     | Tderef: y := Build(d.left); x := NewNode(Nderef, 0, y.typ.BaseTyp, y, NIL)
     | Tindex: y := Build(d.left); x := NewNode(Nindex, 0, y.typ.BaseTyp, y, Build(d.right))
