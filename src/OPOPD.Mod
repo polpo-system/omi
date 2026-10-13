@@ -687,7 +687,7 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
       a := OPT.NewObj(); COPY(obj.name, a.name); InsertObj(a);
       a.mode := obj.mode; a.scope := obj; a.typ := cond.typ; a.conval := OPT.NewConst();
       NEW(al); al.orig := obj; al.obj := a; al.next := aliases; aliases := al;
-      OPT.topScope := outer
+      OPT.topScope := outer; outer.link.scope := outer  (* as the parser: OpenScope made the new scope that of the owner *)
     END
   END WithVar;
 
