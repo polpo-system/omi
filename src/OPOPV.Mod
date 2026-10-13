@@ -416,7 +416,7 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
   BEGIN if:=n.left; OPM.errpos:=if.conval.intval; class:=if.left.class; Expression(if.left);
     IF  (tag=Twith) & (class=Nmop)  THEN
       PushDict;
-      obj:=Orig(if.left.left.obj); typ:=obj.typ; obj.typ:=if.left.obj.typ;
+      obj:=Orig(if.left.left.obj); typ:=obj.typ; obj.typ:=if.left.typ;
       IF  obj.mode=Var  THEN  NNode(t, Uvar, NIL, obj, NIL, NIL, if.left.left.global)
       ELSE  NNode(t, Uvarpar, NIL, obj, NIL, NIL, if.left.left.global)  END;
       VarNodes(t, obj.typ, if.left.left.global);
@@ -425,7 +425,7 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
     WHILE if#NIL  DO  OPM.SymW(CHR(Telsif)); class:=if.left.class; Expression(if.left);
       IF  (tag=Twith) & (class=Nmop)  THEN
         obj.typ:=typ; PopDict; PushDict;
-        obj:=Orig(if.left.left.obj); typ:=obj.typ; obj.typ:=if.left.obj.typ;
+        obj:=Orig(if.left.left.obj); typ:=obj.typ; obj.typ:=if.left.typ;
         IF  obj.mode=Var  THEN  NNode(t, Uvar, NIL, obj, NIL, NIL, if.left.left.global)
         ELSE  NNode(t, Uvarpar, NIL, obj, NIL, NIL, if.left.left.global)  END;
         VarNodes(t, obj.typ, if.left.left.global);
