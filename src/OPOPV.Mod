@@ -45,7 +45,7 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
   VAR
     constNodeOT: ARRAY NilTyp+1 OF INTEGER;
     mopNodeOT: ARRAY not+1 OF INTEGER;
-    dopNodeOT: ARRAY len+1 OF INTEGER;
+    dopNodeOT: ARRAY not+1 OF INTEGER;  (* polpo: to not, as mopNodeOT; SYSTEM ops are 24..34 *)
     asgnNodeOT: ARRAY copyfn+1 OF INTEGER;
     nodeNodeOT: ARRAY Ntrap+1 OF INTEGER;
 
@@ -103,17 +103,29 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
 
 (*Node Tags*)
 
+  (* polpo: what a slim binary cannot say (SYSTEM operations, inline assembler, code procedures)
+     is reported as error 505; the tag returned then (TconstNil in expressions, Texit in statements)
+     only keeps the encoder going, nothing is written after an error *)
+  PROCEDURE NotPortable(statement: BOOLEAN): INTEGER;
+  BEGIN OPM.err(505);
+    IF statement THEN RETURN Texit ELSE RETURN TconstNil END
+  END NotPortable;
+
   PROCEDURE Tag(n: OPT.Node): INTEGER;
   BEGIN
     CASE  n.class OF
     | Nconst:
         IF  n.typ#OPT.booltyp THEN  RETURN constNodeOT[n.typ.form]
         ELSIF n.conval.intval=0 THEN  RETURN TconstFalse  ELSE  RETURN TconstTrue END
-    | Nmop: RETURN mopNodeOT[n.subcl]
-    | Ndop: RETURN dopNodeOT[n.subcl]
-    | Nassign:  RETURN asgnNodeOT[n.subcl]
+    | Nmop: IF (n.subcl > not) OR (mopNodeOT[n.subcl] < 0) THEN RETURN NotPortable(FALSE) END; RETURN mopNodeOT[n.subcl]
+    | Ndop: IF (n.subcl > not) OR (dopNodeOT[n.subcl] < 0) THEN RETURN NotPortable(FALSE) END; RETURN dopNodeOT[n.subcl]
+    | Nassign:  IF (n.subcl > copyfn) OR (asgnNodeOT[n.subcl] < 0) THEN RETURN NotPortable(TRUE) END; RETURN asgnNodeOT[n.subcl]
     | Nifelse:  IF  n.subcl=assertfn  THEN  RETURN Tassert  ELSE  RETURN Tif  END
-    ELSE  RETURN nodeNodeOT[n.class]  END
+    | Nproc: IF n.obj.mode = CProc THEN RETURN NotPortable(FALSE) END; RETURN Uproc
+    ELSE
+      IF (n.class > Ntrap) OR (nodeNodeOT[n.class] < 0) THEN RETURN NotPortable(TRUE) END;
+      RETURN nodeNodeOT[n.class]
+    END
   END Tag;
 
 
@@ -587,8 +599,14 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
   END Module;
 
 
+  PROCEDURE Unset(VAR t: ARRAY OF INTEGER);  (* polpo: -1 marks what has no token *)
+    VAR i: LONGINT;
+  BEGIN i := 0; WHILE i < LEN(t) DO t[i] := -1; INC(i) END
+  END Unset;
+
 BEGIN
   NEW(notFound); NEW(globalNode); globalNode.global:=Global;
+  Unset(constNodeOT); Unset(mopNodeOT); Unset(dopNodeOT); Unset(asgnNodeOT); Unset(nodeNodeOT);
 
 (*node tags*)
   constNodeOT[Char]:=TconstChar;
