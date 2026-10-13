@@ -160,6 +160,7 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
   (* ---------- symbol stream ---------- *)
 
   PROCEDURE ^ InStruct(VAR typ: OPT.Struct);
+  PROCEDURE ^ DeclareParams(proc: OPT.Object);
 
   PROCEDURE InParList(VAR first: OPT.Object);  (* parameters: not inserted yet, linked by link and nxtobj *)
     VAR last, par: OPT.Object;
@@ -195,7 +196,24 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
       IF last = NIL THEN typ.link := fld ELSE last.link := fld END;
       last := fld; Next
     END;
-    IF tok = SFtproc THEN Err(507) (* methods: not yet *) END;
+    IF tok = SFtproc THEN Next;  (* type-bound procedures, as the parser declares them in the record's scope *)
+      WHILE tok # SFend DO
+        fld := OPT.NewObj(); fld.mode := TProc; fld.vis := external;
+        fld.conval := OPT.NewConst(); fld.conval.setval := {hasBody};
+        IF typ.mno # 0 THEN fld.linkadr := OPM.LANotAlloc END;
+        InStruct(fld.typ); ReadString(fld.name);
+        IF fld.name = "" THEN fld.vis := internal; ReadString(fld.name) END;
+        IF fld.name[0] = "&" THEN  (* the initializer of an object type *)
+          i := 0; REPEAT fld.name[i] := fld.name[i+1]; INC(i) UNTIL fld.name[i] = 0X;
+          typ.strobj.link2 := fld
+        END;
+        IF fld.name = "@Body" THEN Err(507) END;
+        InParList(fld.link); InsertObj(fld);
+        IF typ.mno = 0 THEN DeclareParams(fld) END;
+        Next
+      END;
+      IF typ.link = NIL THEN typ.link := OPT.topScope.right END  (* as the parser for a record of methods only *)
+    END;
     OPT.topScope := outer; vars := v
   END InRecord;
 
@@ -421,6 +439,26 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
     END
   END VarNodes;
 
+  PROCEDURE MethodNodes(obj: OPT.Object; global: BOOLEAN);  (* a type-bound procedure, with its super call *)
+    VAR n, d: DNode;
+  BEGIN
+    n := NNode(Uproc, NIL, obj, NIL, NIL, global);
+    d := NNode(Tcall, NIL, obj.link, n, NIL, global); d.flag := NofPar(obj.link);
+    d := NNode(Tcall, NIL, obj.link, n, NIL, global); d.flag := NofPar(obj.link); d.super := TRUE
+  END MethodNodes;
+
+  PROCEDURE GenTProcs(obj: OPT.Object; external, global: BOOLEAN);  (* the record's scope in order, as the encoder *)
+  BEGIN
+    IF obj # NIL THEN
+      GenTProcs(obj.left, external, global);
+      IF obj.mode = TProc THEN
+        MethodNodes(obj, global);
+        IF ~external THEN UNodeO(Uenter, flgEnter, NIL, obj, global) END
+      END;
+      GenTProcs(obj.right, external, global)
+    END
+  END GenTProcs;
+
   PROCEDURE GenNodes(obj: OPT.Object; external, global: BOOLEAN);  (* as GenNodes of the encoder *)
     VAR n, d: DNode; fld: OPT.Object;
   BEGIN
@@ -438,8 +476,8 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
             WHILE fld # NIL DO
               IF fld.mode = Fld THEN UNodeO(Ufield, flgNoLeft, NIL, fld, global) END;
               fld := fld.link
-            END
-            (* type-bound procedures: not yet (refused when the record is read) *)
+            END;
+            IF obj.typ.strobj.scope # NIL THEN GenTProcs(obj.typ.strobj.scope.right, external, global) END
           END
         END
       ELSIF obj.mode IN {LProc, XProc} THEN
@@ -484,7 +522,11 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
       WHILE tok # EUEnd DO
         fp := tok; ReadString(name);
         fld := typ.link; WHILE (fld # NIL) & (fld.name # name) DO fld := fld.link END;
-        IF (fld = NIL) OR (fld.mode # Fld) THEN Err(507)
+        IF ((fld = NIL) OR (fld.mode # Fld)) & (typ.strobj.scope # NIL) THEN fld := Find(typ.strobj.scope.right, name) END;
+        IF (fld # NIL) & (fld.mode = TProc) THEN  (* UseTProc of the encoder *)
+          IF fld.fp # fp THEN ErrObj(515, typ.strobj.name, name, fp, fld.fp) END;
+          OPT.MarkObj(fld); MethodNodes(fld, Global)
+        ELSIF (fld = NIL) OR (fld.mode # Fld) THEN Err(507)
         ELSE
           IF fld.fp # fp THEN ErrObj(515, typ.strobj.name, name, fp, fld.fp) END;
           OPT.MarkObj(fld);
@@ -615,7 +657,7 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
     VAR pars, p, proc, n: OPT.Node;
   BEGIN pars := NIL;
     WHILE d.subflg > 0 DO p := Build(d.right); p.link := pars; pars := p; d := d.left END;
-    proc := Build(d.left);
+    proc := Build(d.left); IF d.super THEN proc.subcl := 1 (* super *) END;
     n := NewNode(Ncall, 0, ResultType(proc), proc, pars); n.obj := Formals(proc); n.conval := OPT.NewConst();
     RETURN n
   END BuildCall;
@@ -634,7 +676,10 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
         | TconstLReal: t := OPT.lrltyp | TconstString: t := OPT.stringtyp
         END;
         x := NewNode(Nconst, 0, t, NIL, NIL); x.conval := CopyConst(d.conval)
-    | Uvar, Uvarpar, Uproc: obj := Current(d.obj); Level(obj); x := OPB.NewLeaf(obj)
+    | Uvar, Uvarpar, Uproc: obj := Current(d.obj);
+        IF obj.mode = TProc THEN x := NewNode(Nproc, 0, obj.typ, NIL, NIL); x.obj := obj  (* the designator of a method call *)
+        ELSE Level(obj); x := OPB.NewLeaf(obj)
+        END
     | Ufield: x := NewNode(Nfield, 0, d.obj.typ, Build(d.left), NIL); x.obj := d.obj
     | Tderef: y := Build(d.left); x := NewNode(Nderef, 0, y.typ.BaseTyp, y, NIL)
     | Tindex: y := Build(d.left); x := NewNode(Nindex, 0, y.typ.BaseTyp, y, Build(d.right))
