@@ -25,6 +25,8 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
     times=1; slash=2; div=3; mod=4; and=5; plus=6; minus=7; or=8; eql=9; neq=10; lss=11; leq=12; gtr=13;
     geq=14; in=15; is=16; ash=17; msk=18; len=19; conv=20; abs=21; cap=22; odd=23; not=33;
     assign=0; newfn=1; incfn=13; decfn=14; inclfn=15; exclfn=16; copyfn=18; assertfn=32;
+    getfn=24; putfn=25; sysnewfn=30; movefn=31;
+    adr=24; bit=26; lsh=27; rot=28; val=29; get8=30; get16=31; get32=32;
     (* node classes *)
     Nvar=0; Nvarpar=1; Nfield=2; Nderef=3; Nindex=4; Nguard=5; Neguard=6; Nconst=7; Nproc=9;
     Nupto=10; Nmop=11; Ndop=12; Ncall=13; Ninittd=14; Nif=15; Ncaselse=16; Ncasedo=17; Nenter=18;
@@ -42,7 +44,10 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
     TdopEql=1EH; TdopNeq=1FH; TdopLss=20H; TdopLeq=21H; TdopGtr=22H; TdopGeq=23H; Tupto=24H;
     Tcall=25H; TasgnNewfn=26H; TasgnAssign=27H; TasgnIncfn=28H; TasgnDecfn=29H; TasgnInclfn=2AH; TasgnExclfn=2BH;
     TasgnCopyfn=2CH; Tassert=2DH; Tif=2EH; Tcase=2FH; Twhile=30H; Trepeat=31H; Tloop=32H; Texit=33H; Twith=34H; Ttrap=35H;
-    Uvar=40H; Uvarpar=41H; Uproc=42H; Ufield=43H; Uguard=44H; Ueguard=45H; UmopIs=46H; UmopConv=47H; Uenter=48H; Ureturn=49H;
+    TsysAdr=36H; TsysBit=37H; TsysLsh=38H; TsysRot=39H; TsysGet8=3AH; TsysGet16=3BH; TsysGet32=3CH;
+    TsysGet=3DH; TsysPut=3EH; TsysNew=3FH; TsysMove=40H; TlastTag=40H;
+    Uvar=50H; Uvarpar=51H; Uproc=52H; Ufield=53H; Uguard=54H; Ueguard=55H; UmopIs=56H; UmopConv=57H; Uenter=58H; Ureturn=59H;
+    UsysVal=5AH;
     flgOK=0; flgNoLeft=-1; flgNoRight=-2; flgEnter=-3;
     Global=TRUE; Local=FALSE;
     EUEnd=0; EURecord=1;
@@ -85,7 +90,7 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
     declScope: OPT.Object;  (* the scope whose declarations are read: named types go there *)
     aliases: Alias;
     nilNode, falseNode, trueNode: DNode;
-    mopOf, dopOf: ARRAY Tupto+1 OF SHORTINT;  (* the subclass of a tag *)
+    mopOf, dopOf: ARRAY TlastTag+1 OF SHORTINT;  (* the subclass of a tag *)
     modName: OPS.Name;
 
   PROCEDURE Err(n: INTEGER);
@@ -417,6 +422,7 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
         IF obj.mode = Var THEN n := NNode(Uvar, NIL, obj, NIL, NIL, global) ELSE n := NNode(Uvarpar, NIL, obj, NIL, NIL, global) END;
         IF ~external THEN VarNodes(n, obj.typ, global) END
       ELSIF obj.mode = Typ THEN
+        UNodeO(UsysVal, flgNoLeft, obj.typ, NIL, global);
         IF (obj.typ.form = Pointer) OR (obj.typ.comp = Record) THEN
           UNodeO(Uguard, flgNoLeft, obj.typ, NIL, global);
           UNodeO(Ueguard, flgNoLeft, obj.typ, NIL, global);
@@ -527,6 +533,7 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
           n := NNode(Uproc, NIL, obj, NIL, NIL, Global);
           d := NNode(Tcall, NIL, obj.link, n, NIL, Global); d.flag := NofPar(obj.link)
         ELSIF (obj.mode = Con) & (obj.typ.form # Bool) THEN d := ConstNode(ConstTag(obj.typ.form), obj.conval)
+        ELSIF obj.mode = Typ THEN UNodeO(UsysVal, flgNoLeft, obj.typ, NIL, Global)
         ELSIF obj.mode = CProc THEN Err(505)
         END;
         IF obj.mode IN {Typ, Var} THEN UseTyp(obj.typ, i) END;
@@ -573,6 +580,17 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
       IF lev > 0 THEN OPB.StaticLink(level - lev) END
     END
   END Level;
+
+  (* SYSTEM.VAL(typ, x) as OPB.Val makes it of a node not folded: a designator gets the type, else Nmop(val) *)
+  PROCEDURE Val(x: OPT.Node; typ: OPT.Struct): OPT.Node;
+    VAR t: OPT.Node; f: SHORTINT;
+  BEGIN f := x.typ.form;
+    IF (x.class >= Nconst) OR ((f = Real) OR (f = LReal)) # ((typ.form = Real) OR (typ.form = LReal))
+    OR (typ.sysflag = 5 (* delegate *)) & (typ.form = ProcTyp) & (f # ProcTyp) THEN
+      t := NewNode(Nmop, val, typ, x, NIL); RETURN t
+    ELSE x.readonly := FALSE; x.typ := typ; RETURN x
+    END
+  END Val;
 
   PROCEDURE ^ Build(d: DNode): OPT.Node;
 
@@ -629,6 +647,14 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
         END;
         x := NewNode(Ndop, dopOf[d.tag], t, y, Build(d.right))
     | Tupto: x := NewNode(Nupto, 0, OPT.settyp, Build(d.left), Build(d.right))
+    | TsysAdr: x := NewNode(Nmop, adr, OPT.linttyp, Build(d.left), NIL)
+    | TsysGet8: x := NewNode(Nmop, get8, OPT.sinttyp, Build(d.left), NIL)
+    | TsysGet16: x := NewNode(Nmop, get16, OPT.inttyp, Build(d.left), NIL)
+    | TsysGet32: x := NewNode(Nmop, get32, OPT.linttyp, Build(d.left), NIL)
+    | TsysBit: x := NewNode(Ndop, bit, OPT.booltyp, Build(d.left), Build(d.right))
+    | TsysLsh, TsysRot: y := Build(d.left);
+        IF d.tag = TsysLsh THEN x := NewNode(Ndop, lsh, y.typ, y, Build(d.right)) ELSE x := NewNode(Ndop, rot, y.typ, y, Build(d.right)) END
+    | UsysVal: x := Val(Build(d.left), d.typ)
     | Tcall: x := BuildCall(d)
     ELSE Err(517); x := OPB.NewBoolConst(FALSE)
     END;
@@ -662,7 +688,7 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
   PROCEDURE Ref(): DNode;  (* tok is a reference *)
     VAR n: DNode;
   BEGIN
-    IF tok > Ttrap THEN
+    IF tok > TlastTag THEN
       IF tok >= above THEN Err(518); RETURN falseNode END; n := glob[tok]
     ELSE
       IF -tok > -below THEN Err(518); RETURN falseNode END; n := loc[-tok]
@@ -683,7 +709,7 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
     VAR tag: INTEGER; n, left, right: DNode; c: OPT.Const; r: REAL; s: LONGINT;
   BEGIN
     Next; tag := SHORT(tok);
-    IF (tok > Ttrap) OR (tok < 0) THEN RETURN Complete(Ref()) END;
+    IF (tok > TlastTag) OR (tok < 0) THEN RETURN Complete(Ref()) END;
     CASE tag OF
     | TconstNil: n := nilNode
     | TconstFalse: n := falseNode
@@ -695,8 +721,8 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
     | TconstString: c := OPT.NewConst(); c.ext := OPT.NewExt(); ReadString(c.ext^);
         s := 0; WHILE c.ext[s] # 0X DO INC(s) END; c.intval := OPM.ConstNotAlloc; c.intval2 := s + 1;
         n := ConstNode(tag, c)
-    | Tderef, TmopNot..TmopOdd: left := Expr(); n := NNode(tag, NIL, NIL, left, NIL, left.global)
-    | Tindex, TdopAnd..Tupto: left := Expr(); right := Expr(); n := NNode(tag, NIL, NIL, left, right, left.global & right.global)
+    | Tderef, TmopNot..TmopOdd, TsysAdr, TsysGet8..TsysGet32: left := Expr(); n := NNode(tag, NIL, NIL, left, NIL, left.global)
+    | Tindex, TdopAnd..Tupto, TsysBit..TsysRot: left := Expr(); right := Expr(); n := NNode(tag, NIL, NIL, left, right, left.global & right.global)
     | Tcall: left := Expr(); n := CallNode(left)
     ELSE Err(519); n := falseNode
     END;
@@ -794,10 +820,19 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
     RETURN Stat(Ncase, 0, sel, x)
   END CaseStat;
 
-  PROCEDURE Statement(): OPT.Node;  (* tok: the first number of a statement *)
-    VAR tag: INTEGER; n, left, right: DNode; x, seq, y: OPT.Node; trapno: LONGINT; dims, last: OPT.Node; t: OPT.Struct;
+  PROCEDURE SysStat(tag: INTEGER; left, right: OPT.Node): OPT.Node;  (* SYSTEM.GET, PUT, NEW *)
   BEGIN
-    IF (tok > Ttrap) OR (tok < 0) THEN
+    CASE tag OF
+    | TsysGet: RETURN Stat(Nassign, getfn, left, right)
+    | TsysPut: RETURN Stat(Nassign, putfn, left, right)
+    | TsysNew: RETURN Stat(Nassign, sysnewfn, left, right)
+    END
+  END SysStat;
+
+  PROCEDURE Statement(): OPT.Node;  (* tok: the first number of a statement *)
+    VAR tag: INTEGER; n, left, right, cnt: DNode; x, seq, y, z: OPT.Node; trapno: LONGINT; dims, last: OPT.Node; t: OPT.Struct;
+  BEGIN
+    IF (tok > TlastTag) OR (tok < 0) THEN
       n := Ref();
       IF n.flag = flgEnter THEN RETURN Enter(n) END;
       n := Complete(n);
@@ -809,6 +844,7 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
       | TasgnInclfn: RETURN Stat(Nassign, inclfn, Build(n.left), Build(n.right))
       | TasgnExclfn: RETURN Stat(Nassign, exclfn, Build(n.left), Build(n.right))
       | TasgnCopyfn: RETURN Stat(Nassign, copyfn, Build(n.left), Build(n.right))
+      | TsysGet..TsysNew: RETURN SysStat(n.tag, Build(n.left), Build(n.right))
       | Ureturn:
           IF n.left = NIL THEN x := Stat(Nreturn, 0, NIL, NIL) ELSE x := Stat(Nreturn, 0, Build(n.left), NIL) END;
           x.obj := n.obj; RETURN x
@@ -833,6 +869,12 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
         | TasgnExclfn: RETURN Stat(Nassign, exclfn, Build(left), Build(right))
         | TasgnCopyfn: RETURN Stat(Nassign, copyfn, Build(left), Build(right))
         END
+    | TsysGet..TsysNew:
+        left := Expr(); right := Expr(); n := NNode(tag, NIL, NIL, left, right, left.global & right.global);
+        RETURN SysStat(tag, Build(left), Build(right))
+    | TsysMove:  (* MOVE(src, dst, n): Nassign(movefn, dst, src) with n after src *)
+        left := Expr(); right := Expr(); cnt := Expr(); n := NNode(tag, NIL, NIL, left, right, left.global & right.global);
+        y := Build(right); y.link := Build(cnt); RETURN Stat(Nassign, movefn, Build(left), y)
     | Tif, Twith: RETURN IfStat(tag)
     | Tcase: RETURN CaseStat()
     | Twhile: x := Build(Expr()); StatSeq(seq); IF tok # Tend THEN Err(520) END; RETURN Stat(Nwhile, 0, x, seq)
@@ -926,7 +968,7 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
     Imports;  (* the other imports *)
     ReadScope(internal);  (* the rest of the module scope *)
     IF ~OPM.noerr THEN RETURN END;
-    above := Ttrap + 1; below := -1;
+    above := TlastTag + 1; below := -1;
     UNodeO(UmopConv, flgNoLeft, OPT.chartyp, NIL, Global);
     UNodeO(UmopConv, flgNoLeft, OPT.sinttyp, NIL, Global);
     UNodeO(UmopConv, flgNoLeft, OPT.inttyp, NIL, Global);
@@ -934,6 +976,11 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
     UNodeO(UmopConv, flgNoLeft, OPT.realtyp, NIL, Global);
     UNodeO(UmopConv, flgNoLeft, OPT.lrltyp, NIL, Global);
     UNodeO(UmopConv, flgNoLeft, OPT.settyp, NIL, Global);
+    UNodeO(UsysVal, flgNoLeft, OPT.booltyp, NIL, Global); UNodeO(UsysVal, flgNoLeft, OPT.chartyp, NIL, Global);
+    UNodeO(UsysVal, flgNoLeft, OPT.sinttyp, NIL, Global); UNodeO(UsysVal, flgNoLeft, OPT.inttyp, NIL, Global);
+    UNodeO(UsysVal, flgNoLeft, OPT.linttyp, NIL, Global); UNodeO(UsysVal, flgNoLeft, OPT.realtyp, NIL, Global);
+    UNodeO(UsysVal, flgNoLeft, OPT.lrltyp, NIL, Global); UNodeO(UsysVal, flgNoLeft, OPT.settyp, NIL, Global);
+    UNodeO(UsysVal, flgNoLeft, OPT.bytetyp, NIL, Global); UNodeO(UsysVal, flgNoLeft, OPT.ptrtyp, NIL, Global);
     GenNodes(objects, FALSE, Global);
     UseSection;
     IF ~OPM.noerr THEN RETURN END;
