@@ -235,6 +235,15 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
 
 (* Code Part *)
 
+  (* polpo: in a WITH on a variable of the module or of a procedure, polpo's parser declares a new
+     object of the guarded type in a scope of its own (obj.scope = the variable); the statements
+     use that one. The slim binary, as on the mac, retypes the variable itself: this gives it *)
+  PROCEDURE Orig(obj: OPT.Object): OPT.Object;
+  BEGIN
+    IF (obj.mode IN {Var, VarPar}) & (obj.scope # NIL) & (obj.scope.mode IN {Var, VarPar}) THEN RETURN obj.scope END;
+    RETURN obj
+  END Orig;
+
   PROCEDURE ^ EquivNode(n: OPT.Node): OPT.Node;
 
   PROCEDURE EquivCall(n: OPT.Node): OPT.Node;
@@ -294,7 +303,7 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
         WHILE (left#p.left) OR (typ#p.typ)  DO  p:=p.link END
     | UmopIs: typ:=n.obj.typ; left:=EquivNode(n.left); hd.typ:=typ; hd.left:=left;
         WHILE (left#p.left) OR (typ#p.typ)  DO  p:=p.link END
-    | Uvar, Uvarpar, Uproc: obj:=n.obj; hd.obj:=obj;
+    | Uvar, Uvarpar, Uproc: obj:=Orig(n.obj); hd.obj:=obj;
         WHILE obj#p.obj DO  p:=p.link END
     | TasgnAssign:
         (* IF (n.right.class=Nproc) & (n.right.obj.mnolev=0) & (~n.right.obj.inited)  THEN  OPM.err(502)
@@ -407,7 +416,7 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
   BEGIN if:=n.left; OPM.errpos:=if.conval.intval; class:=if.left.class; Expression(if.left);
     IF  (tag=Twith) & (class=Nmop)  THEN
       PushDict;
-      obj:=if.left.left.obj; typ:=obj.typ; obj.typ:=if.left.typ;
+      obj:=Orig(if.left.left.obj); typ:=obj.typ; obj.typ:=if.left.obj.typ;
       IF  obj.mode=Var  THEN  NNode(t, Uvar, NIL, obj, NIL, NIL, if.left.left.global)
       ELSE  NNode(t, Uvarpar, NIL, obj, NIL, NIL, if.left.left.global)  END;
       VarNodes(t, obj.typ, if.left.left.global);
@@ -416,7 +425,7 @@ MODULE OPOPV; (*mf 21.11.94 / tk object model 30.6.96 *)
     WHILE if#NIL  DO  OPM.SymW(CHR(Telsif)); class:=if.left.class; Expression(if.left);
       IF  (tag=Twith) & (class=Nmop)  THEN
         obj.typ:=typ; PopDict; PushDict;
-        obj:=if.left.left.obj; typ:=obj.typ; obj.typ:=if.left.typ;
+        obj:=Orig(if.left.left.obj); typ:=obj.typ; obj.typ:=if.left.obj.typ;
         IF  obj.mode=Var  THEN  NNode(t, Uvar, NIL, obj, NIL, NIL, if.left.left.global)
         ELSE  NNode(t, Uvarpar, NIL, obj, NIL, NIL, if.left.left.global)  END;
         VarNodes(t, obj.typ, if.left.left.global);
