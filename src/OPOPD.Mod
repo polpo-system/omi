@@ -88,6 +88,7 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
     TDinit, lastTDinit: OPT.Node;
     vars: OPT.Object;  (* the last variable of the scope being read, for the list in topScope.scope *)
     declScope: OPT.Object;  (* the scope whose declarations are read: named types go there *)
+    nofhidden: LONGINT;  (* private fields named so far *)
     aliases: Alias;
     nilNode, falseNode, trueNode: DNode;
     mopOf, dopOf: ARRAY TlastTag+1 OF SHORTINT;  (* the subclass of a tag *)
@@ -173,7 +174,7 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
   END InParList;
 
   PROCEDURE InRecord(typ: OPT.Struct);
-    VAR flags: LONGINT; prio: CHAR; fld, last: OPT.Object; owner, outer: OPT.Object; v: OPT.Object;
+    VAR flags, k: LONGINT; prio: CHAR; fld, last: OPT.Object; owner, outer: OPT.Object; v: OPT.Object; i: INTEGER;
   BEGIN
     owner := typ.strobj; Files.ReadNum(R, flags); Files.Read(R, prio);
     outer := OPT.topScope; v := vars; OPT.OpenScope(0, owner); last := NIL;
@@ -183,7 +184,13 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
       IF tok = SFobjflag THEN Files.Read(R, fld.sysflag); Next END;
       IF tok = SFreadonly THEN fld.vis := externalR; Next END;
       InStruct(fld.typ); ReadString(fld.name);
-      IF fld.name = "" THEN fld.vis := internal ELSE InsertObj(fld) END;
+      IF fld.name = "" THEN  (* a private field: the stream has no name, the parser's scope has one; the first
+          field is the root of the scope's tree (typ.link), which VisitTProcs walks to number the methods *)
+        fld.vis := internal; INC(nofhidden); fld.name := "@"; i := 1; k := nofhidden;
+        REPEAT fld.name[i] := CHR(ORD("0") + k MOD 10); k := k DIV 10; INC(i) UNTIL k = 0;
+        fld.name[i] := 0X
+      END;
+      InsertObj(fld);
       fld.myscope := OPT.topScope;
       IF last = NIL THEN typ.link := fld ELSE last.link := fld END;
       last := fld; Next
@@ -957,7 +964,7 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
     mod := OPT.NewObj(); mod.scope := OPT.topScope; OPT.topScope.link := mod;
     OPT.topScope.conval := OPT.NewConst(); mod.mode := Mod; mod.conval := OPT.NewConst(); mod.typ := OPT.notyp;
     INCL(mod.conval.setval, protectedObj); COPY(modName, mod.name);
-    nofemods := 0; nofstruc := 0; NEW(structs, 4096); objects := NIL; level := 0; vars := NIL; aliases := NIL;
+    nofemods := 0; nofstruc := 0; nofhidden := 0; NEW(structs, 4096); objects := NIL; level := 0; vars := NIL; aliases := NIL;
     TDinit := NIL; lastTDinit := NIL; dsp := 0;
     Imports;  (* the imports of the interface *)
     IF ~OPM.noerr THEN RETURN END;
