@@ -313,7 +313,12 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
     END;
     IF tok = SFoperator THEN Err(507) END;
     IF tok = SFcproc THEN Err(505) END;
-    IF tok = SFalias THEN Err(507) END;
+    IF tok = SFalias THEN Next;  (* TYPE A = B: an object of the type, not in the list of OutObj *)
+      WHILE tok < SFtyp DO
+        obj := OPT.NewObj(); obj.mode := Typ; obj.vis := vis; obj.conval := OPT.NewConst();
+        InStruct(obj.typ); ReadString(obj.name); InsertObj(obj); Next
+      END
+    END;
     IF tok = SFtyp THEN Next;
       WHILE tok < SFend DO InStruct(dum); Next END
     END;
