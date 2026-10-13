@@ -482,6 +482,31 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
     END
   END UseRecord;
 
+  (* the use section fingerprints imported types and marks records (fpdone, oref) as the encoder did; the
+     parser computes no fingerprints that early, and Export and OPL would take these over: undone *)
+  PROCEDURE ResetTyp(typ: OPT.Struct);
+    VAR fld: OPT.Object;
+  BEGIN
+    IF (typ # NIL) & ((typ.fpdone > 0) OR (typ.oref # 0)) THEN
+      typ.fpdone := 0; typ.oref := 0;
+      ResetTyp(typ.BaseTyp);
+      IF (typ.comp = Record) OR (typ.form = ProcTyp) THEN
+        fld := typ.link; WHILE fld # NIL DO ResetTyp(fld.typ); fld := fld.link END
+      END
+    END
+  END ResetTyp;
+
+  PROCEDURE ResetScope(obj: OPT.Object);
+    VAR par: OPT.Object;
+  BEGIN
+    IF obj # NIL THEN
+      ResetScope(obj.left);
+      IF obj.typ # NIL THEN ResetTyp(obj.typ) END;
+      IF obj.mode = XProc THEN par := obj.link; WHILE par # NIL DO ResetTyp(par.typ); par := par.link END END;
+      ResetScope(obj.right)
+    END
+  END ResetScope;
+
   PROCEDURE UseSection;
     VAR name: OPS.Name; i: INTEGER; fp: LONGINT; obj: OPT.Object; n, d: DNode;
   BEGIN
@@ -508,7 +533,9 @@ MODULE OPOPD;  (* polpo: the decoder of slim binaries, for polpo's x86 compiler 
         Next
       END;
       ReadString(name)
-    END
+    END;
+    i := 1; WHILE i < OPT.nofmod DO ResetScope(OPT.modules[i].right); INC(i) END;
+    OPT.modNo := 0
   END UseSection;
 
   (* ---------- trees ---------- *)
